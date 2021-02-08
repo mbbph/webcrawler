@@ -1,6 +1,6 @@
+#Webcrawler for https://brynmawr.edu and its subdomains (moodle, digitalscholarship, techdocs.blogs)
+
 from bs4 import BeautifulSoup
-#import urllib.request
-#import urllib.robotparser
 import requests
 from urllib.request import urlopen
 from urllib.parse import urljoin
@@ -8,35 +8,33 @@ from concurrent.futures import ThreadPoolExecutor
 import lxml
 import re
 
-#athletics
-#moodle
 class Worm:
-    #key - current page's url, value - set of all the urls linked on current page
-    web = {}
-    frontier = []
-    #rr is robot rules
-    rr = {}
+    web = {} #maps current page url to set of linked urls
+    frontier = [] #queue holding urls to be crawled
+    rr = {} #robot rules
 
     def __init__(self, start):
-        #self.robot_rules(start, (start + "/robots.txt"))
         self.start_crawl(start)
 
+    #unit test to find all links on a single page
     def unit_test(self):
         soup = BeautifulSoup(urlopen("https://cs.brynmawr.edu/Courses/cs330/spring2020/Lab10.pdf").read(), "lxml")
         for link in soup.find_all('a'):
             link = urljoin(urlwithSlsh, link.get('href'))
             print(link)
 
+    #crawls page at url and adds any new links found to queue
     def crawl(self, url):
         try:
             current = urlopen(url).read()
         except Exception as e:
-            #print(e)
             return
-        soup = BeautifulSoup(current, "lxml")#parse tree
+        soup = BeautifulSoup(current, "lxml")
 
-        urls = set()
+        urls = set() #Stores unique links on a page
         urlwSlsh = ""
+
+        #Normalize links
         if url.endswith("/"):
             urlwSlsh = url
             url = url[:-1]
@@ -45,15 +43,15 @@ class Worm:
 
         for link in soup.find_all('a'):
             link = urljoin(urlwSlsh, link.get('href'))
-            #print(link)
-            if re.search("^https://moodle.brynmawr.edu+.*$", link):
-            #if re.search("^https://www.brynmawr.edu/academics+.*$", link):
+
+            #check and process anchor links
+            if re.search("^" + url + ".*$", link):
                 hashfound = link.find("#")
                 if hashfound != -1:
                     if link.find("#!") != -1:
                         continue
                     else:
-                        link = link[:hashfound]
+                        link = link[:hashfound] #cut off anchor if exists
                 if link.endswith("/"):
                     link = link[:-1]
                 urls.add(link)
@@ -62,47 +60,43 @@ class Worm:
 
         newlinks = 0
         for u in urls:
+            #if u hasn't been encountered
             if u not in self.web:
                 #check against robot rules
                 if u in self.rr:
                     print("robot violation:", u)
                     continue
-                #open each "viable" link if possible, discard??? if not
+                #try to open each "viable" link
                 try:
-                    requests.get(u, timeout= 360)#timeout time 6 minutes
+                    requests.get(u, timeout= 360) #timeout time 6 minutes
                 except requests.RequestException:
-                    print("failed request get:", u)
+                    print("failed to GET: ", u)
                     continue
                 self.frontier.insert(0, u)
                 newlinks = newlinks + 1
-        #print("new links encountered:", newlinks)
         print(newlinks)
 
-    #start is starting url
+    #start = starting url
     def start_crawl(self, start):
-        self.pool = ThreadPoolExecutor(max_workers=100)#100
+        self.robot_rules("https://www.brynmawr.edu", "https://www.brynmawr.edu/robots.txt")
+        self.pool = ThreadPoolExecutor(max_workers=100)
         self.frontier.append(start)
-
         cntr = 0
+        #while queue is not empty, create threads
         while len(self.frontier) != 0:
-        #while cntr != 1500:
-            current = self.frontier.pop()
-            #print("cntr:", cntr)
-            #print(current)
-            #print(len(self.frontier))
+            current = self.frontier.pop() #get link
             self.pool.submit(self.crawl(current))
             cntr = cntr + 1
-            #print()
         self.print_links()
 
+    #outputs all links found to file
     def print_links(self):
-        f = open("web_crawler_moodle.txt", "a+")
-        for key, value in self.web.items() :
+        f = open("web_crawler.txt", "a+")
+        for key, value in self.web.items():
             f.write("%s" % key)
         f.close()
 
-
-
+    #custom robot rules parser (built in parser wasn't working)
     def robot_rules(self, start, robot_url):
         data = urlopen(robot_url)
         for line in data:
@@ -126,7 +120,5 @@ class Worm:
                 continue
 
 
-
 if __name__ == "__main__":
-    myWorm = Worm("https://moodle.brynmawr.edu")
-    #ourWorm = Worm("https://www.brynmawr.edu/academics")
+    myWorm = Worm("https://www.moodle.brynmawr.edu")
